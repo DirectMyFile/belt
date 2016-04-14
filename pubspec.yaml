@@ -1,0 +1,4 @@
+name: belt
+description: Utility Belt
+dependencies:
+  path: "^1.3.9"
