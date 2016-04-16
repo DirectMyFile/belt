@@ -9,3 +9,5 @@ import "package:path/path.dart" as pathlib;
 part "src/io/process.dart";
 part "src/io/system.dart";
 part "src/io/path.dart";
+part "src/io/qts.dart";
+part "src/io/http.dart";
