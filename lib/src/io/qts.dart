@@ -118,6 +118,7 @@ class QuickTerminalServer {
   }
 
   Future _doProcess(Map<String, String> env) async {
+    var _exe = "script";
     var _args = [];
 
     if (Platform.isMacOS) {
@@ -125,13 +126,15 @@ class QuickTerminalServer {
       _args.add("/dev/null");
       _args.add(executable);
       _args.addAll(args);
+    } else if (Platform.isWindows) {
+      _exe = executable;
     } else {
       _args.add("-qfc");
       _args.add("${executable} ${args.join(' ')}".trim());
       _args.add("/dev/null");
     }
 
-    _process = await Process.start("script", _args, environment: env);
+    _process = await Process.start(_exe, _args, environment: env);
     _stdout = _process.stdout.asBroadcastStream();
     _stderr = _process.stderr.asBroadcastStream();
 
