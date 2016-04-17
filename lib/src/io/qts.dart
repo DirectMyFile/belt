@@ -195,8 +195,11 @@ class QuickTerminalClient {
     });
 
     var env = new Map.from(Platform.environment);
-    env["LINES"] = stdout.terminalLines.toString();
-    env["COLUMNS"] = stdout.terminalColumns.toString();
+
+    if (stdout.hasTerminal) {
+      env["LINES"] = stdout.terminalLines.toString();
+      env["COLUMNS"] = stdout.terminalColumns.toString();
+    }
 
     send(5, UTF8.encode(JSON.encode({
       "env": env
