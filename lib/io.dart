@@ -1,3 +1,4 @@
+/// Belt IO Utilities.
 library belt.io;
 
 import "dart:async";
