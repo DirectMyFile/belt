@@ -36,7 +36,13 @@ Future<String> findExecutable(String name, {bool force: false}) async {
     } catch (e) {}
   }
 
-  var paths = Platform.environment["PATH"].split(
+  var pathString = Platform.environment["PATH"];
+
+  if (pathString == null) {
+    pathString = "";
+  }
+
+  var paths = pathString.split(
     Platform.isWindows ? ";" : ":"
   );
 
