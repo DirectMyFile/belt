@@ -1,7 +1,15 @@
 part of belt.io;
 
-Map<String, String> _executableCache = {};
+Map<String, String> _executableCache = <String, String>{};
 
+/// Attempts to find the executable specified by [name] via the `PATH` variable.
+/// By default, the first search for an executable is cached. To skip the cache,
+/// set [force] to true.
+///
+/// Special cases Dart SDK executable names by looking relative to the current
+/// executable. If it is not found, normal resolution is used.
+///
+/// On Windows, files ending with .exe and .bat are checked for as well.
 Future<String> findExecutable(String name, {bool force: false}) async {
   if (_executableCache.containsKey(name) && !force) {
     var file = new File(_executableCache[name]);
@@ -12,7 +20,10 @@ Future<String> findExecutable(String name, {bool force: false}) async {
 
   if (const [
     "dart",
-    "pub"
+    "pub",
+    "dart2js",
+    "dartanalyzer",
+    "dartdoc"
   ].contains(name)) {
     try {
       var exeFile = new File(Platform.resolvedExecutable);
@@ -26,8 +37,10 @@ Future<String> findExecutable(String name, {bool force: false}) async {
   }
 
   var paths = Platform.environment["PATH"].split(
-    Platform.isWindows ? ";" : ":");
-  var tryFiles = [name];
+    Platform.isWindows ? ";" : ":"
+  );
+
+  var tryFiles = <String>[name];
 
   if (Platform.isWindows) {
     tryFiles.addAll(["${name}.exe", "${name}.bat"]);
@@ -61,6 +74,8 @@ Future<String> findExecutable(String name, {bool force: false}) async {
   return null;
 }
 
+/// Checks if the command given by [name] is installed.
+/// If [force] is true, the executable cache is skipped.
 Future<bool> isCommandInstalled(String name, {bool force: false}) async {
   return (await findExecutable(name, force: force)) != null;
 }

@@ -1,4 +1,4 @@
-import "package:belt/io.dart";
+import "package:belt/qts.dart";
 
 main(List<String> args) async {
   String sec = args[0];

@@ -1,14 +1,25 @@
 part of belt.io;
 
+/// A callback handler for [BetterProcessResult] objects.
 typedef ProcessResultHandler(BetterProcessResult result);
+
+/// A callback handler for [Process] objects.
 typedef ProcessHandler(Process process);
-typedef ProcessOutputHandler(String string);
+
+/// A callback handler for process output data.
+typedef ProcessOutputHandler(data);
+
+/// A callback handler to retrieve the [ProcessAdapterReferences] adapter.
 typedef ProcessAdapterHandler(ProcessAdapterReferences adapter);
+
+/// A callback handler for process logging.
 typedef ProcessLogHandler(String message);
 
 Stdin get _stdin => stdin;
 
+/// An improved process result with combined stdout + stderr output.
 class BetterProcessResult extends ProcessResult {
+  /// The full process output.
   final output;
 
   BetterProcessResult(int pid, int exitCode, stdout, stderr, this.output)
@@ -18,17 +29,31 @@ class BetterProcessResult extends ProcessResult {
   String toString() => output.toString().trim();
 }
 
+/// A class to pass in flags in the references for
+/// the [executeCommand] method.
 class ProcessAdapterFlags {
+  /// Should we inherit stdio?
   bool inherit = false;
+
+  /// Output log file.
   File logFile;
+
+  /// Logging callback handler.
   ProcessLogHandler logHandler;
 }
 
+/// Process references.
 class ProcessAdapterReferences {
+  /// The process result.
   BetterProcessResult result;
+
+  /// Process object.
   Process process;
+
+  /// Process flags.
   ProcessAdapterFlags flags = new ProcessAdapterFlags();
 
+  /// Handle when the process result is ready.
   Future<BetterProcessResult> get onResultReady {
     if (result != null) {
       return new Future.value(result);
@@ -39,6 +64,7 @@ class ProcessAdapterReferences {
     }
   }
 
+  /// Handle when the process is ready.
   Future<Process> get onProcessReady {
     if (process != null) {
       return new Future.value(process);
@@ -49,9 +75,10 @@ class ProcessAdapterReferences {
     }
   }
 
-  List<ProcessResultHandler> _onResultReady = [];
-  List<ProcessHandler> _onProcessReady = [];
+  List<ProcessResultHandler> _onResultReady = <ProcessResultHandler>[];
+  List<ProcessHandler> _onProcessReady = <ProcessHandler>[];
 
+  /// Pushes the process into the reference.
   void pushProcess(Process process) {
     this.process = process;
     while (_onProcessReady.isNotEmpty) {
@@ -59,6 +86,7 @@ class ProcessAdapterReferences {
     }
   }
 
+  /// Pushes the result into the reference.
   void pushResult(BetterProcessResult result) {
     this.result = result;
     while (_onResultReady.isNotEmpty) {
@@ -67,6 +95,37 @@ class ProcessAdapterReferences {
   }
 }
 
+/// Execute a Command.
+///
+/// [executable] is the name or path to the executable to run.
+/// [args] is an optional list of arguments for the executable.
+/// [workingDirectory] is a path to the directory to execute the command in.
+/// [includeParentEnvironment] specifies whether the process should inherit the current environment.
+/// [runInShell] specified whether the process should run in a command line shell.
+/// [stdin] is an instance of any of the following:
+/// - [String]
+/// - [List<int>]
+/// - [Stream<String>]
+/// - [Stream<List<int>>]
+/// - [File]
+/// that will be passed as the input of the command.
+///
+/// [handler] specifies a callback for the [Process] object.
+/// [stdoutHandler] specifies a callback for stdout data.
+/// [stderrHandler] specifies a callback for stderr data.
+/// [outputHandler] specifies a callback for any output data.
+/// [outputFile] specifies a file to write log data to.
+/// [inherit] specifies whether to write data to the stdout/stderr of the current process.
+/// [writeToBuffer] specifies whether to write output to buffers for the process result.
+/// [binary] specifies whether to treat the process output like binary data.
+/// [resultHandler] specifies a callback for the [BetterProcessResult] instance.
+/// [inheritStdin] specifies whether the current process stdin should be piped to the process.
+/// [logHandler] specifies a callback for any logging output.
+/// [sudo] specifies whether to run the command as root if possible or not.
+/// [tty] specifies whether to attempt to emulate a TTY or not.
+/// [refs] specifies the [ProcessAdapterReferences] instance.
+///
+/// [refs] can also be specified using the zone value `belt.io.process.ref`.
 Future<BetterProcessResult> executeCommand(
   String executable,
   {
@@ -88,7 +147,8 @@ Future<BetterProcessResult> executeCommand(
     bool inheritStdin: false,
     ProcessLogHandler logHandler,
     bool sudo: false,
-    bool tty: false
+    bool tty: false,
+    ProcessAdapterReferences refs
   }) async {
   if (args == null) {
     args = <String>[];
