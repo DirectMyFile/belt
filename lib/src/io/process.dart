@@ -97,35 +97,35 @@ class ProcessAdapterReferences {
 
 /// Execute a Command.
 ///
-/// [executable] is the name or path to the executable to run.
-/// [args] is an optional list of arguments for the executable.
-/// [workingDirectory] is a path to the directory to execute the command in.
-/// [includeParentEnvironment] specifies whether the process should inherit the current environment.
-/// [runInShell] specified whether the process should run in a command line shell.
+/// [executable] is the name or path to the executable to run.<br/>
+/// [args] is an optional list of arguments for the executable.<br/>
+/// [workingDirectory] is a path to the directory to execute the command in.<br/>
+/// [includeParentEnvironment] specifies whether the process should inherit the current environment.<br/>
+/// [runInShell] specified whether the process should run in a command line shell.<br/>
 /// [stdin] is an instance of any of the following:
 /// - [String]
 /// - [List<int>]
 /// - [Stream<String>]
 /// - [Stream<List<int>>]
 /// - [File]
-/// that will be passed as the input of the command.
-///
-/// [handler] specifies a callback for the [Process] object.
-/// [stdoutHandler] specifies a callback for stdout data.
-/// [stderrHandler] specifies a callback for stderr data.
-/// [outputHandler] specifies a callback for any output data.
-/// [outputFile] specifies a file to write log data to.
-/// [inherit] specifies whether to write data to the stdout/stderr of the current process.
-/// [writeToBuffer] specifies whether to write output to buffers for the process result.
-/// [binary] specifies whether to treat the process output like binary data.
-/// [resultHandler] specifies a callback for the [BetterProcessResult] instance.
-/// [inheritStdin] specifies whether the current process stdin should be piped to the process.
-/// [logHandler] specifies a callback for any logging output.
-/// [sudo] specifies whether to run the command as root if possible or not.
-/// [tty] specifies whether to attempt to emulate a TTY or not.
-/// [refs] specifies the [ProcessAdapterReferences] instance.
-///
-/// [refs] can also be specified using the zone value `belt.io.process.ref`.
+/// that will be passed as the input of the command.<br/>
+/// [handler] specifies a callback for the [Process] object.<br/>
+/// [stdoutHandler] specifies a callback for stdout data.<br/>
+/// [stderrHandler] specifies a callback for stderr data.<br/>
+/// [outputHandler] specifies a callback for any output data.<br/>
+/// [outputFile] specifies a file to write log data to.<br/>
+/// [inherit] specifies whether to write data to the stdout/stderr of the current process.<br/>
+/// [writeToBuffer] specifies whether to write output to buffers for the process result.<br/>
+/// [binary] specifies whether to treat the process output like binary data.<br/>
+/// [resultHandler] specifies a callback for the [BetterProcessResult] instance.<br/>
+/// [inheritStdin] specifies whether the current process stdin should be piped to the process.<br/>
+/// [inheritSignals] specifies whether the current process should proxy signals to the process.<br/>
+/// [logHandler] specifies a callback for any logging output.<br/>
+/// [sudo] specifies whether to run the command as root if possible or not.<br/>
+/// [tty] specifies whether to attempt to emulate a TTY or not.<br/>
+/// [refs] specifies the [ProcessAdapterReferences] instance.<br/>
+/// [refs] can also be specified using the zone value `belt.io.process.ref`.<br/>
+/// [lineBased] specifies whether to process output based on newlines.<br/>
 Future<BetterProcessResult> executeCommand(
   String executable,
   {
@@ -141,14 +141,16 @@ Future<BetterProcessResult> executeCommand(
     ProcessOutputHandler outputHandler,
     File outputFile,
     bool inherit: false,
+    bool inheritSignals: false,
+    bool inheritStdin: false,
     bool writeToBuffer: true,
     bool binary: false,
     ProcessResultHandler resultHandler,
-    bool inheritStdin: false,
     ProcessLogHandler logHandler,
     bool sudo: false,
     bool tty: false,
-    ProcessAdapterReferences refs
+    ProcessAdapterReferences refs,
+    bool lineBased: true
   }) async {
   if (args == null) {
     args = <String>[];
@@ -172,16 +174,30 @@ Future<BetterProcessResult> executeCommand(
 
   if (sudo && BeltPlatform.isUnix && await isCommandInstalled("sudo")) {
     args.insert(0, executable);
-    executable = "sudo";
+    executable = await findExecutable("sudo");
   }
 
-  if (tty && BeltPlatform.isUnix && await isCommandInstalled("command")) {
-    args.insert(0, executable);
-    executable = "command";
+  if (tty && BeltPlatform.isUnix && await isCommandInstalled("script")) {
+    var realArguments = args;
 
-    if (!environment.containsKey("TERM")) {
-      environment["TERM"] = "xterm";
+    List<String> scriptArgs;
+
+    if (Platform.isMacOS) {
+      scriptArgs = ["-q", "/dev/null", executable];
+      scriptArgs.addAll(realArguments);
+    } else {
+      var command = executable;
+
+      if (realArguments.isNotEmpty) {
+        command += " ";
+        command += escapeCommandArguments(realArguments);
+      }
+
+      scriptArgs = <String>["-qfc", command, "/dev/null"];
     }
+
+    executable = await findExecutable("script");
+    args = scriptArgs;
   }
 
   ProcessAdapterReferences refs = Zone.current["belt.io.process.ref"];
@@ -201,6 +217,21 @@ Future<BetterProcessResult> executeCommand(
     raf = await outputFile.openWrite(mode: FileMode.APPEND);
   }
 
+  if (inheritStdin) {
+    _p(String k) {
+      if (Platform.environment[k] is String) {
+        environment[k] = Platform.environment[k];
+      }
+    }
+
+    _p("TERM");
+    _p("LINES");
+    _p("COLUMNS");
+
+    _stdin.lineMode = false;
+    _stdin.echoMode = false;
+  }
+
   try {
     Process process = await Process.start(
       executable,
@@ -210,6 +241,25 @@ Future<BetterProcessResult> executeCommand(
       includeParentEnvironment: includeParentEnvironment,
       runInShell: runInShell
     );
+
+    var signalSubs = <StreamSubscription>[];
+
+    if (inheritSignals) {
+      proxy(ProcessSignal signal) {
+        signalSubs.add(signal.watch().listen((ProcessSignal signal) {
+          if (process != null) {
+            process.kill(signal);
+          }
+        }));
+      }
+
+      proxy(ProcessSignal.SIGINT);
+      proxy(ProcessSignal.SIGHUP);
+      proxy(ProcessSignal.SIGTERM);
+      proxy(ProcessSignal.SIGUSR1);
+      proxy(ProcessSignal.SIGUSR2);
+      proxy(ProcessSignal.SIGWINCH);
+    }
 
     var id = process.pid.toString();
 
@@ -241,10 +291,14 @@ Future<BetterProcessResult> executeCommand(
     var sbytes = <int>[];
 
     if (!binary) {
-      process.stdout
-        .transform(const Utf8Decoder(allowMalformed: true))
-        .transform(const LineSplitter())
-        .listen((str) async {
+      var stdoutDecoded = process.stdout
+        .transform(const Utf8Decoder(allowMalformed: true));
+
+      if (lineBased) {
+        stdoutDecoded = stdoutDecoded.transform(const LineSplitter());
+      }
+
+      stdoutDecoded.listen((str) async {
         if (writeToBuffer) {
           ob.writeln(str);
           buff.writeln(str);
@@ -259,7 +313,11 @@ Future<BetterProcessResult> executeCommand(
         }
 
         if (inherit) {
-          stdout.writeln(str);
+          if (lineBased) {
+            stdout.writeln(str);
+          } else {
+            stdout.write(str);
+          }
         }
 
         if (raf != null) {
@@ -271,10 +329,14 @@ Future<BetterProcessResult> executeCommand(
         }
       });
 
-      process.stderr
-        .transform(const Utf8Decoder(allowMalformed: true))
-        .transform(const LineSplitter())
-        .listen((str) async {
+      var stderrDecoded = process.stderr
+        .transform(const Utf8Decoder(allowMalformed: true));
+
+      if (lineBased) {
+        stderrDecoded = stderrDecoded.transform(const LineSplitter());
+      }
+
+      stderrDecoded.listen((str) async {
         if (writeToBuffer) {
           eb.writeln(str);
           buff.writeln(str);
@@ -289,7 +351,11 @@ Future<BetterProcessResult> executeCommand(
         }
 
         if (inherit) {
-          stderr.writeln(str);
+          if (lineBased) {
+            stderr.writeln(str);
+          } else {
+            stderr.write(str);
+          }
         }
 
         if (raf != null) {
@@ -302,13 +368,41 @@ Future<BetterProcessResult> executeCommand(
       });
     } else {
       process.stdout.listen((bytes) {
-        obytes.addAll(bytes);
-        sbytes.addAll(bytes);
+        if (writeToBuffer) {
+          obytes.addAll(bytes);
+          sbytes.addAll(bytes);
+        }
+
+        if (stdoutHandler != null) {
+          stdoutHandler(bytes);
+        }
+
+        if (outputHandler != null) {
+          outputHandler(bytes);
+        }
+
+        if (inherit) {
+          stdout.add(bytes);
+        }
       });
 
       process.stderr.listen((bytes) {
-        obytes.addAll(bytes);
-        ebytes.addAll(bytes);
+        if (writeToBuffer) {
+          obytes.addAll(bytes);
+          ebytes.addAll(bytes);
+        }
+
+        if (stderrHandler != null) {
+          stderrHandler(bytes);
+        }
+
+        if (outputHandler != null) {
+          outputHandler(bytes);
+        }
+
+        if (inherit) {
+          stderr.add(bytes);
+        }
       });
     }
 
@@ -350,6 +444,12 @@ Future<BetterProcessResult> executeCommand(
         "[${_currentTimestamp}][${id}] == Exited with status ${code} =="
       );
     }
+
+    for (StreamSubscription sub in signalSubs) {
+      sub.cancel();
+    }
+
+    signalSubs.clear();
 
     var result = new BetterProcessResult(
       pid,

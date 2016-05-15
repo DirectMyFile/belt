@@ -69,3 +69,9 @@ Future<bool> isPortOpen(int port, {host, bool ipv6: false}) async {
   }
 }
 
+/// Turn a list of command line [arguments] into an escaped command string.
+String escapeCommandArguments(List<String> arguments) {
+  return arguments.map((arg) {
+    return "'" + arg.replaceAll("'", "\\'") + "'";
+  }).join(" ");
+}
